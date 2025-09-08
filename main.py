@@ -230,7 +230,7 @@ def save_form_configuration(form_config: FormConfiguration):
             )
 
         conn.commit()
-        return cursor.lastrowid
+        return form_config.id or cursor.lastrowid
 
 def get_form_configurations():
     """Get all form configurations"""
@@ -1133,8 +1133,10 @@ async def oracle_data_load(
         elastic_env_id: int = Form(...),
         index: str = Form(...),
         query: str = Form(...),
+        offset: int = Form(1),
+        limit: int = Form(100),
 ):
-    """Execute Oracle query and load first 100 records into Elasticsearch."""
+    """Execute Oracle query and load a limited set of records into Elasticsearch."""
     try:
         oracle_envs = get_oracle_environments()
         oracle_env = next((e for e in oracle_envs if e["id"] == oracle_env_id), None)
@@ -1146,16 +1148,20 @@ async def oracle_data_load(
         if not es_env:
             raise HTTPException(status_code=404, detail="Elasticsearch environment not found")
 
-        # --- 1) Run the SELECT on Oracle and fetch up to 100 rows ---
+        # --- 1) Run the SELECT on Oracle with pagination ---
+        oracle_offset = max(offset - 1, 0)
+        paged_query = (
+            f"SELECT * FROM ({query}) OFFSET {oracle_offset} ROWS FETCH NEXT {limit} ROWS ONLY"
+        )
         with oracledb.connect(
                 user=oracle_env["username"],
                 password=oracle_env["password"],
                 dsn=oracle_env["url"],
         ) as connection:
             cursor = connection.cursor()
-            cursor.execute(query)  # ensure this is a SELECT
+            cursor.execute(paged_query)
             columns = [c[0] for c in cursor.description]
-            rows = cursor.fetchmany(100)
+            rows = cursor.fetchall()
             records = [dict(zip(columns, row)) for row in rows]
             print(records)
 
@@ -1233,6 +1239,8 @@ async def oracle_data_preview(
     elastic_env_id: int = Form(...),
     index: str = Form(...),
     query: str = Form(...),
+    offset: int = Form(1),
+    limit: int = Form(100),
     oracle_page: int = Form(1),
     elastic_page: int = Form(1),
     page_size: int = Form(10)
@@ -1249,8 +1257,11 @@ async def oracle_data_preview(
         if not es_env:
             raise HTTPException(status_code=404, detail="Elasticsearch environment not found")
 
-        offset = (oracle_page - 1) * page_size
-        paged_query = f"SELECT * FROM ({query}) OFFSET {offset} ROWS FETCH NEXT {page_size} ROWS ONLY"
+        base_offset = max(offset - 1, 0)
+        page_offset = base_offset + (oracle_page - 1) * page_size
+        remaining = max(limit - (oracle_page - 1) * page_size, 0)
+        fetch_size = min(page_size, remaining)
+        paged_query = f"SELECT * FROM ({query}) OFFSET {page_offset} ROWS FETCH NEXT {fetch_size} ROWS ONLY"
         count_query = f"SELECT COUNT(*) FROM ({query})"
 
         with oracledb.connect(
@@ -1261,9 +1272,13 @@ async def oracle_data_preview(
             cursor = connection.cursor()
             cursor.execute(count_query)
             total_rows = cursor.fetchone()[0]
-            cursor.execute(paged_query)
-            columns = [c[0] for c in cursor.description]
-            rows = [dict(zip(columns, r)) for r in cursor.fetchall()]
+            total_rows = max(0, total_rows - base_offset)
+            total_rows = min(total_rows, limit)
+            rows = []
+            if fetch_size > 0:
+                cursor.execute(paged_query)
+                columns = [c[0] for c in cursor.description]
+                rows = [dict(zip(columns, r)) for r in cursor.fetchall()]
 
         es_url = f"{es_env['host_url']}/{index}/_search"
         auth = (es_env.get("username"), es_env.get("password")) if es_env.get("username") else None
@@ -2412,6 +2427,7 @@ async def save_form(request: Request):
     """Save form configuration"""
     try:
         form_data = await request.json()
+        form_id = form_data.get('id')
 
         # Validate required fields
         if not form_data.get('name') or not form_data.get('url'):
@@ -2420,16 +2436,17 @@ async def save_form(request: Request):
                 "error": "Form name and URL are required"
             })
 
-        # Check if URL already exists
+        # Check if URL already exists for another form
         existing_form = get_form_configuration_by_url(form_data['url'])
-        if existing_form:
+        if existing_form and existing_form.get('id') != form_id:
             return JSONResponse({
                 "success": False,
                 "error": "Form URL already exists. Please choose a different URL."
             })
 
-        # Create form configuration
+        # Create or update form configuration
         form_config = FormConfiguration(
+            id=form_id,
             name=form_data['name'],
             url=form_data['url'],
             environment=form_data['environment'],
