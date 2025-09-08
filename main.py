@@ -1133,8 +1133,10 @@ async def oracle_data_load(
         elastic_env_id: int = Form(...),
         index: str = Form(...),
         query: str = Form(...),
+        offset: int = Form(0),
+        limit: int = Form(100),
 ):
-    """Execute Oracle query and load first 100 records into Elasticsearch."""
+    """Execute Oracle query and load a limited set of records into Elasticsearch."""
     try:
         oracle_envs = get_oracle_environments()
         oracle_env = next((e for e in oracle_envs if e["id"] == oracle_env_id), None)
@@ -1146,16 +1148,19 @@ async def oracle_data_load(
         if not es_env:
             raise HTTPException(status_code=404, detail="Elasticsearch environment not found")
 
-        # --- 1) Run the SELECT on Oracle and fetch up to 100 rows ---
+        # --- 1) Run the SELECT on Oracle with pagination ---
+        paged_query = (
+            f"SELECT * FROM ({query}) OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY"
+        )
         with oracledb.connect(
                 user=oracle_env["username"],
                 password=oracle_env["password"],
                 dsn=oracle_env["url"],
         ) as connection:
             cursor = connection.cursor()
-            cursor.execute(query)  # ensure this is a SELECT
+            cursor.execute(paged_query)
             columns = [c[0] for c in cursor.description]
-            rows = cursor.fetchmany(100)
+            rows = cursor.fetchall()
             records = [dict(zip(columns, row)) for row in rows]
             print(records)
 

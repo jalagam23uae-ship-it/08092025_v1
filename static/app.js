@@ -8230,6 +8230,8 @@ async function runDataLoad() {
     const elasticEnvId = document.getElementById('dataLoadElasticEnv')?.value;
     const indexName = document.getElementById('dataLoadElasticsearchIndex')?.value;
     const query = document.getElementById('dataLoadQuery')?.value.trim();
+    const offset = document.getElementById('dataLoadOffset')?.value || 0;
+    const limit = document.getElementById('dataLoadLimit')?.value || 100;
 
     if (!oracleEnvId) {
         showAlert('Please select an Oracle environment', 'warning');
@@ -8255,6 +8257,8 @@ async function runDataLoad() {
         formData.append('elastic_env_id', envIdTemp);
         formData.append('index', indexName);
         formData.append('query', query);
+        formData.append('offset', offset);
+        formData.append('limit', limit);
         const response = await fetch('/oracle/data-load', {
             method: 'POST',
             body: formData
