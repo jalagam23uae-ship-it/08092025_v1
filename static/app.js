@@ -8230,7 +8230,7 @@ async function runDataLoad() {
     const elasticEnvId = document.getElementById('dataLoadElasticEnv')?.value;
     const indexName = document.getElementById('dataLoadElasticsearchIndex')?.value;
     const query = document.getElementById('dataLoadQuery')?.value.trim();
-    const offset = document.getElementById('dataLoadOffset')?.value || 0;
+    const offset = document.getElementById('dataLoadOffset')?.value || 1;
     const limit = document.getElementById('dataLoadLimit')?.value || 100;
 
     if (!oracleEnvId) {
@@ -8295,6 +8295,8 @@ async function fetchDataPreview() {
     const elasticEnvId = document.getElementById('dataLoadElasticEnv')?.value;
     const indexName = document.getElementById('dataLoadElasticsearchIndex')?.value;
     const query = document.getElementById('dataLoadQuery')?.value.trim();
+    const offset = document.getElementById('dataLoadOffset')?.value || 1;
+    const limit = document.getElementById('dataLoadLimit')?.value || 100;
 
     if (!oracleEnvId || !elasticEnvId || !indexName) {
         showAlert('Please select environments and index for preview', 'warning');
@@ -8311,6 +8313,8 @@ async function fetchDataPreview() {
         formData.append('oracle_page', oraclePreviewPage);
         formData.append('elastic_page', elasticPreviewPage);
         formData.append('page_size', previewPageSize);
+        formData.append('offset', offset);
+        formData.append('limit', limit);
         const response = await fetch('/oracle/data-preview', {
             method: 'POST',
             body: formData
