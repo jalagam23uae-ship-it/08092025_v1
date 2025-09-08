@@ -2999,6 +2999,16 @@
                     <label for="dataLoadQuery" class="form-label">Oracle Query</label>
                     <textarea id="dataLoadQuery" class="form-control" rows="4" placeholder="SELECT * FROM table"></textarea>
                 </div>
+                <div class="row">
+                    <div class="col mb-3">
+                        <label for="dataLoadOffset" class="form-label">Offset</label>
+                        <input type="number" id="dataLoadOffset" class="form-control" value="1" min="1">
+                    </div>
+                    <div class="col mb-3">
+                        <label for="dataLoadLimit" class="form-label">Limit</label>
+                        <input type="number" id="dataLoadLimit" class="form-control" value="100" min="1">
+                    </div>
+                </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
