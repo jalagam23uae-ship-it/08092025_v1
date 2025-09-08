@@ -230,7 +230,7 @@ def save_form_configuration(form_config: FormConfiguration):
             )
 
         conn.commit()
-        return cursor.lastrowid
+        return form_config.id or cursor.lastrowid
 
 def get_form_configurations():
     """Get all form configurations"""
@@ -2427,6 +2427,7 @@ async def save_form(request: Request):
     """Save form configuration"""
     try:
         form_data = await request.json()
+        form_id = form_data.get('id')
 
         # Validate required fields
         if not form_data.get('name') or not form_data.get('url'):
@@ -2435,16 +2436,17 @@ async def save_form(request: Request):
                 "error": "Form name and URL are required"
             })
 
-        # Check if URL already exists
+        # Check if URL already exists for another form
         existing_form = get_form_configuration_by_url(form_data['url'])
-        if existing_form:
+        if existing_form and existing_form.get('id') != form_id:
             return JSONResponse({
                 "success": False,
                 "error": "Form URL already exists. Please choose a different URL."
             })
 
-        # Create form configuration
+        # Create or update form configuration
         form_config = FormConfiguration(
+            id=form_id,
             name=form_data['name'],
             url=form_data['url'],
             environment=form_data['environment'],

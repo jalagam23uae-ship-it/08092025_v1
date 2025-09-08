@@ -66,6 +66,7 @@ let currentFieldName = null;
 let currentMultiValueField = null;
 let currentMultiValueData = {};
 let currentFieldEdit = null;
+let currentEditingFormId = null;
 
 // Operator options based on input type
 const operatorOptions = {
@@ -5115,6 +5116,7 @@ async function handleSaveFormConfig() {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
+                id: currentEditingFormId,
                 name: formName,
                 url: formUrl,
                 environment: parseInt(envId),
@@ -5133,8 +5135,15 @@ async function handleSaveFormConfig() {
             document.getElementById('formName').value = '';
             document.getElementById('formUrl').value = '';
             document.getElementById('logicalFieldsBuilder').innerHTML = '<p class="text-muted">Configure fields for your form</p>';
+            enhancedFormBuilderData.formConfig = {};
             formBuilderData.formConfig = {};
-            updateFormPreview();
+            currentEditingFormId = null;
+            const saveBtn = document.getElementById('saveFormConfig');
+            if (saveBtn) {
+                saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>Save Form Configuration';
+            }
+            updateFormFieldsDisplay();
+            updateEnhancedFormPreview();
         } else {
             showAlert('Failed to save form: ' + (result.error || 'Unknown error'), 'danger');
         }
@@ -5171,6 +5180,9 @@ async function loadSavedForms() {
                             <a href="/form/${form.url}" target="_blank" class="btn btn-sm btn-primary">
                                 <i class="fas fa-external-link-alt"></i>
                             </a>
+                            <button class="btn btn-sm btn-secondary" onclick="editForm(${form.id}, '${form.url}')">
+                                <i class="fas fa-edit"></i>
+                            </button>
                             <button class="btn btn-sm btn-danger" onclick="deleteForm(${form.id})">
                                 <i class="fas fa-trash"></i>
                             </button>
@@ -5186,6 +5198,55 @@ async function loadSavedForms() {
     } catch (error) {
         console.error('Error loading saved forms:', error);
         showAlert('Error loading saved forms: ' + error.message, 'danger');
+    }
+}
+
+async function editForm(formId, formUrl) {
+    try {
+        const response = await fetch(`/enhanced-form-config/${formUrl}`);
+        const result = await response.json();
+
+        if (result.success) {
+            const formConfig = result.form_config;
+            currentEditingFormId = formConfig.id || formId;
+
+            const formNameInput = document.getElementById('formName');
+            const formUrlInput = document.getElementById('formUrl');
+            const formEnvironment = document.getElementById('formEnvironment');
+            const formIndex = document.getElementById('formIndex');
+            const saveBtn = document.getElementById('saveFormConfig');
+
+            if (formNameInput) formNameInput.value = formConfig.name || '';
+            if (formUrlInput) formUrlInput.value = formConfig.url || '';
+
+            if (formEnvironment) {
+                formEnvironment.value = formConfig.environment;
+                enhancedFormBuilderData.environment = formConfig.environment;
+                await handleFormEnvironmentChange();
+            }
+
+            if (formIndex) {
+                formIndex.value = formConfig.index_name;
+                enhancedFormBuilderData.index = formConfig.index_name;
+                handleFormIndexChange();
+            }
+
+            await handleLoadIndexFields();
+
+            enhancedFormBuilderData.formConfig = formConfig.enhanced_fields || formConfig.fields || {};
+            updateFormFieldsDisplay();
+            updateEnhancedFormPreview();
+            showFormConfigSection();
+
+            if (saveBtn) {
+                saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>Update Form Configuration';
+            }
+        } else {
+            showAlert('Failed to load form for editing: ' + (result.error || 'Unknown error'), 'danger');
+        }
+    } catch (error) {
+        console.error('Error loading form for editing:', error);
+        showAlert('Error loading form for editing: ' + error.message, 'danger');
     }
 }
 
