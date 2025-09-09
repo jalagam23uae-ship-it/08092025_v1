@@ -1265,12 +1265,29 @@ async def oracle_data_preview(
         if not es_env:
             raise HTTPException(status_code=404, detail="Elasticsearch environment not found")
 
+        root_fields, _, relation, _, _, parent_child_list = fetch_field_lists(elastic_env_id, index)
+        relation_filter = None
+        if relation and parent_child_list:
+            try:
+                relation_field, root_value = parent_child_list[0].split(":")
+                relation_filter = (relation_field, root_value)
+            except ValueError:
+                relation_filter = None
+
+        base_query = query
+        if relation_filter and root_fields:
+            partition = ", ".join(root_fields)
+            dedup_inner = (
+                f"SELECT t.*, ROW_NUMBER() OVER (PARTITION BY {partition} ORDER BY {partition}) rn FROM ({query}) t"
+            )
+            base_query = f"SELECT * FROM ({dedup_inner}) WHERE rn = 1"
+
         base_offset = max(offset - 1, 0)
         page_offset = base_offset + (oracle_page - 1) * page_size
         remaining = max(limit - (oracle_page - 1) * page_size, 0)
         fetch_size = min(page_size, remaining)
-        paged_query = f"{query} OFFSET {page_offset} ROWS FETCH NEXT {fetch_size} ROWS ONLY"
-        count_query = f"SELECT COUNT(*) FROM ({query})"
+        paged_query = f"{base_query} OFFSET {page_offset} ROWS FETCH NEXT {fetch_size} ROWS ONLY"
+        count_query = f"SELECT COUNT(*) FROM ({base_query})"
 
         with oracledb.connect(
             user=oracle_env["username"],
@@ -1287,7 +1304,17 @@ async def oracle_data_preview(
                 if "ORA-00918" in str(db_err):
                     cursor.execute(query)
                     temp_rows = cursor.fetchall()
-                    total_rows = len(temp_rows)
+                    if relation_filter and root_fields:
+                        cols = [c[0] for c in cursor.description]
+                        dedup = {}
+                        for r in temp_rows:
+                            row = dict(zip(cols, r))
+                            key = tuple(row.get(f) for f in root_fields)
+                            if key not in dedup:
+                                dedup[key] = row
+                        total_rows = len(dedup)
+                    else:
+                        total_rows = len(temp_rows)
                 else:
                     raise
 
@@ -1301,9 +1328,16 @@ async def oracle_data_preview(
                     if "ORA-00918" in str(db_err):
                         cursor.execute(query)
                         columns = [c[0] for c in cursor.description]
-                        all_rows = cursor.fetchall()
+                        all_rows = [dict(zip(columns, r)) for r in cursor.fetchall()]
+                        if relation_filter and root_fields:
+                            dedup = {}
+                            for row in all_rows:
+                                key = tuple(row.get(f) for f in root_fields)
+                                if key not in dedup:
+                                    dedup[key] = row
+                            all_rows = list(dedup.values())
                         slice_rows = all_rows[page_offset:page_offset + fetch_size]
-                        rows = [dict(zip(columns, r)) for r in slice_rows]
+                        rows = slice_rows
                         total_rows = len(all_rows)
                     else:
                         raise
@@ -1311,7 +1345,12 @@ async def oracle_data_preview(
         es_url = f"{es_env['host_url']}/{index}/_search"
         auth = (es_env.get("username"), es_env.get("password")) if es_env.get("username") else None
         es_from = (elastic_page - 1) * page_size
-        es_query = {"query": {"match_all": {}}, "from": es_from, "size": page_size}
+        es_query = {"from": es_from, "size": page_size}
+        if relation_filter:
+            field, root_value = relation_filter
+            es_query["query"] = {"term": {field: root_value}}
+        else:
+            es_query["query"] = {"match_all": {}}
         es_resp = requests.post(es_url, json=es_query, auth=auth, verify=False, timeout=30)
         if es_resp.status_code != 200:
             raise Exception(f"Elasticsearch query failed: {es_resp.status_code} - {es_resp.text}")
