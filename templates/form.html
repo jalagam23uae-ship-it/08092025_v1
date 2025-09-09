@@ -325,6 +325,10 @@
             transform: scale(1.05);
         }
 
+        .operator-icon {
+            border-radius: 0 10px 10px 0;
+        }
+
         /* Loading States */
         .loading-skeleton {
             background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
@@ -395,14 +399,46 @@
                             </label>
 
                             {% if field_config.inputType == 'text' %}
-                            <input type="text" class="form-control" name="{{ field_name }}"
-                                   placeholder="{{ field_config.placeholder or '' }}"
-                                   {% if field_config.required %}required{% endif %}>
+                            <div class="input-group">
+                                <input type="text" class="form-control" name="{{ field_name }}"
+                                       placeholder="{{ field_config.placeholder or '' }}"
+                                       {% if field_config.required %}required{% endif %}>
+                                {% if field_config.operatorEnabled %}
+                                <button class="btn btn-outline-secondary btn-sm dropdown-toggle operator-icon" type="button"
+                                        id="operator-{{ field_name }}" data-bs-toggle="dropdown" aria-expanded="false"
+                                        title="{{ field_config.operatorPreference or 'match' }}">
+                                    <i class="fas fa-sliders-h"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    {% for op in ['match','==','in','range','>','<','<='] %}
+                                    <li><a class="dropdown-item" href="#" onclick="selectFieldOperator('{{ field_name }}','{{ op }}');return false;">{{ op }}</a></li>
+                                    {% endfor %}
+                                </ul>
+                                <input type="hidden" id="operator-input-{{ field_name }}" name="{{ field_name }}_operator"
+                                       value="{{ field_config.operatorPreference or 'match' }}">
+                                {% endif %}
+                            </div>
 
                             {% elif field_config.inputType == 'number' %}
-                            <input type="number" class="form-control" name="{{ field_name }}"
-                                   placeholder="{{ field_config.placeholder or '' }}"
-                                   {% if field_config.required %}required{% endif %}>
+                            <div class="input-group">
+                                <input type="number" class="form-control" name="{{ field_name }}"
+                                       placeholder="{{ field_config.placeholder or '' }}"
+                                       {% if field_config.required %}required{% endif %}>
+                                {% if field_config.operatorEnabled %}
+                                <button class="btn btn-outline-secondary btn-sm dropdown-toggle operator-icon" type="button"
+                                        id="operator-{{ field_name }}" data-bs-toggle="dropdown" aria-expanded="false"
+                                        title="{{ field_config.operatorPreference or '==' }}">
+                                    <i class="fas fa-sliders-h"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    {% for op in ['match','==','in','range','>','<','<='] %}
+                                    <li><a class="dropdown-item" href="#" onclick="selectFieldOperator('{{ field_name }}','{{ op }}');return false;">{{ op }}</a></li>
+                                    {% endfor %}
+                                </ul>
+                                <input type="hidden" id="operator-input-{{ field_name }}" name="{{ field_name }}_operator"
+                                       value="{{ field_config.operatorPreference or '==' }}">
+                                {% endif %}
+                            </div>
 
                             {% elif field_config.inputType == 'number-range' %}
                             <div class="input-group">
@@ -413,11 +449,41 @@
                                 <input type="number" class="form-control" name="{{ field_name }}_max"
                                        placeholder="Max"
                                        {% if field_config.required %}required{% endif %}>
+                                {% if field_config.operatorEnabled %}
+                                <button class="btn btn-outline-secondary btn-sm dropdown-toggle operator-icon" type="button"
+                                        id="operator-{{ field_name }}" data-bs-toggle="dropdown" aria-expanded="false"
+                                        title="{{ field_config.operatorPreference or 'range' }}">
+                                    <i class="fas fa-sliders-h"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    {% for op in ['match','==','in','range','>','<','<='] %}
+                                    <li><a class="dropdown-item" href="#" onclick="selectFieldOperator('{{ field_name }}','{{ op }}');return false;">{{ op }}</a></li>
+                                    {% endfor %}
+                                </ul>
+                                <input type="hidden" id="operator-input-{{ field_name }}" name="{{ field_name }}_operator"
+                                       value="{{ field_config.operatorPreference or 'range' }}">
+                                {% endif %}
                             </div>
 
                             {% elif field_config.inputType == 'date' %}
-                            <input type="date" class="form-control" name="{{ field_name }}"
-                                   {% if field_config.required %}required{% endif %}>
+                            <div class="input-group">
+                                <input type="date" class="form-control" name="{{ field_name }}"
+                                       {% if field_config.required %}required{% endif %}>
+                                {% if field_config.operatorEnabled %}
+                                <button class="btn btn-outline-secondary btn-sm dropdown-toggle operator-icon" type="button"
+                                        id="operator-{{ field_name }}" data-bs-toggle="dropdown" aria-expanded="false"
+                                        title="{{ field_config.operatorPreference or '==' }}">
+                                    <i class="fas fa-sliders-h"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    {% for op in ['match','==','in','range','>','<','<='] %}
+                                    <li><a class="dropdown-item" href="#" onclick="selectFieldOperator('{{ field_name }}','{{ op }}');return false;">{{ op }}</a></li>
+                                    {% endfor %}
+                                </ul>
+                                <input type="hidden" id="operator-input-{{ field_name }}" name="{{ field_name }}_operator"
+                                       value="{{ field_config.operatorPreference or '==' }}">
+                                {% endif %}
+                            </div>
 
                             {% elif field_config.inputType == 'date-range' %}
                             <div class="input-group">
@@ -426,19 +492,49 @@
                                 <span class="input-group-text">to</span>
                                 <input type="date" class="form-control" name="{{ field_name }}_end"
                                        {% if field_config.required %}required{% endif %}>
+                                {% if field_config.operatorEnabled %}
+                                <button class="btn btn-outline-secondary btn-sm dropdown-toggle operator-icon" type="button"
+                                        id="operator-{{ field_name }}" data-bs-toggle="dropdown" aria-expanded="false"
+                                        title="{{ field_config.operatorPreference or 'range' }}">
+                                    <i class="fas fa-sliders-h"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    {% for op in ['match','==','in','range','>','<','<='] %}
+                                    <li><a class="dropdown-item" href="#" onclick="selectFieldOperator('{{ field_name }}','{{ op }}');return false;">{{ op }}</a></li>
+                                    {% endfor %}
+                                </ul>
+                                <input type="hidden" id="operator-input-{{ field_name }}" name="{{ field_name }}_operator"
+                                       value="{{ field_config.operatorPreference or 'range' }}">
+                                {% endif %}
                             </div>
 
                             {% elif field_config.inputType == 'dropdown' %}
-                            <select class="form-select dynamic-dropdown"
-                                    name="{{ field_name }}"
-                                    id="dropdown-{{ field_name }}"
-                                    data-field-name="{{ field_name }}"
-                                    data-source-index="{{ field_config.sourceIndex or '' }}"
-                                    data-key-field="{{ field_config.keyField or '' }}"
-                                    data-value-field="{{ field_config.valueField or '' }}"
-                                    {% if field_config.required %}required{% endif %}>
-                                <option value="">Loading options...</option>
-                            </select>
+                            <div class="input-group">
+                                <select class="form-select dynamic-dropdown"
+                                        name="{{ field_name }}"
+                                        id="dropdown-{{ field_name }}"
+                                        data-field-name="{{ field_name }}"
+                                        data-source-index="{{ field_config.sourceIndex or '' }}"
+                                        data-key-field="{{ field_config.keyField or '' }}"
+                                        data-value-field="{{ field_config.valueField or '' }}"
+                                        {% if field_config.required %}required{% endif %}>
+                                    <option value="">Loading options...</option>
+                                </select>
+                                {% if field_config.operatorEnabled %}
+                                <button class="btn btn-outline-secondary btn-sm dropdown-toggle operator-icon" type="button"
+                                        id="operator-{{ field_name }}" data-bs-toggle="dropdown" aria-expanded="false"
+                                        title="{{ field_config.operatorPreference or '==' }}">
+                                    <i class="fas fa-sliders-h"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    {% for op in ['match','==','in','range','>','<','<='] %}
+                                    <li><a class="dropdown-item" href="#" onclick="selectFieldOperator('{{ field_name }}','{{ op }}');return false;">{{ op }}</a></li>
+                                    {% endfor %}
+                                </ul>
+                                <input type="hidden" id="operator-input-{{ field_name }}" name="{{ field_name }}_operator"
+                                       value="{{ field_config.operatorPreference or '==' }}">
+                                {% endif %}
+                            </div>
 
                             {% elif field_config.inputType == 'checkbox' %}
                             <div class="checkbox-enhanced-container">
@@ -1114,6 +1210,7 @@
     function captureAllFormParameters(form) {
         const formData = {};
         const rangeBuffers = {};
+        const operatorMap = {};
         const formElements = form.elements;
 
         for (let i = 0; i < formElements.length; i++) {
@@ -1188,6 +1285,13 @@
                                 formData[fieldName] = element.value.trim();
                             }
                         }
+                    } else if (fieldName.endsWith('_operator')) {
+                        const base = fieldName.replace('_operator', '');
+                        if (element.value) {
+                            operatorMap[base] = element.value;
+                        }
+                    } else if (element.value.trim()) {
+                        formData[fieldName] = element.value.trim();
                     }
                     break;
             }
@@ -1197,6 +1301,13 @@
         Object.entries(rangeBuffers).forEach(([key, value]) => {
             if (Object.keys(value).length > 0) {
                 formData[key] = value;
+            }
+        });
+
+        // Attach operators to corresponding fields
+        Object.entries(operatorMap).forEach(([key, op]) => {
+            if (formData[key] !== undefined) {
+                formData[key] = { value: formData[key], operator: op };
             }
         });
 
@@ -1216,14 +1327,18 @@
 
         for (const [fieldName, fieldConfig] of Object.entries(window.formConfig.fields)) {
             if (fieldConfig.required) {
-                const value = fields[fieldName];
+                const rawValue = fields[fieldName];
+                const value = (rawValue && typeof rawValue === 'object' &&
+                    !Array.isArray(rawValue) && rawValue.operator !== undefined && rawValue.hasOwnProperty('value'))
+                    ? rawValue.value
+                    : rawValue;
 
                 if (!value || value === '' ||
                     (Array.isArray(value) && value.length === 0) ||
                     (typeof value === 'object' && value.type === 'multi_value' && value.values.length === 0) ||
                     (typeof value === 'object' && !Array.isArray(value) &&
                         !value.gte && !value.lte)) {
-
+                    
                     return {
                         isValid: false,
                         message: `${fieldConfig.label || fieldName} is required`
@@ -1325,6 +1440,20 @@
         await loadModalValues(fieldConfig);
         const modal = new bootstrap.Modal(document.getElementById('multiValueModal'));
         modal.show();
+    }
+
+    function selectFieldOperator(fieldName, operator) {
+        const btn = document.getElementById(`operator-${fieldName}`);
+        const hiddenInput = document.getElementById(`operator-input-${fieldName}`);
+        if (btn) {
+            btn.title = operator;
+        }
+        if (hiddenInput) {
+            hiddenInput.value = operator;
+        }
+        if (window.formConfig && window.formConfig.fields[fieldName]) {
+            window.formConfig.fields[fieldName].operatorPreference = operator;
+        }
     }
 
     async function loadModalValues(fieldConfig) {
