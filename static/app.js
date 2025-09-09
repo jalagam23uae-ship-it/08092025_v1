@@ -5597,6 +5597,8 @@ function showEnhancedFieldConfigModal() {
     document.getElementById('fieldRole').value = currentFieldConfig.role;
     document.getElementById('fieldRequired').checked = currentFieldConfig.required;
     document.getElementById('fieldPlaceholder').value = currentFieldConfig.placeholder;
+    document.getElementById('operatorEnable').checked = !!currentFieldConfig.operatorEnabled;
+    document.getElementById('operatorDisable').checked = !currentFieldConfig.operatorEnabled;
 
     // Load available indices for source configuration
     loadAvailableIndicesForSource();
@@ -5787,6 +5789,7 @@ function saveEnhancedFieldConfig() {
     const role = document.getElementById('fieldRole').value;
     const required = document.getElementById('fieldRequired').checked;
     const placeholder = document.getElementById('fieldPlaceholder').value.trim();
+    const operatorEnabled = document.querySelector('input[name="operatorToggle"]:checked').value === 'true';
 
     if (!fieldLabel) {
         showAlert('Please enter a field label', 'warning');
@@ -5797,6 +5800,7 @@ function saveEnhancedFieldConfig() {
     currentFieldConfig.label = fieldLabel;
     currentFieldConfig.inputType = inputType;
     currentFieldConfig.operatorPreference = operator;
+    currentFieldConfig.operatorEnabled = operatorEnabled;
     currentFieldConfig.role = role;
     currentFieldConfig.required = required;
     currentFieldConfig.placeholder = placeholder;
@@ -5873,6 +5877,30 @@ function updateFormFieldsDisplay() {
 /**
  * Update enhanced form preview with checkbox icons
  */
+function buildInputWithOperator(fieldName, field, innerHTML, wrapAlways = false) {
+    if (!field.operatorEnabled) {
+        return wrapAlways ? `<div class="input-group">${innerHTML}</div>` : innerHTML;
+    }
+    const ops = [...(operatorOptions[field.inputType]?.primary || []), ...(operatorOptions[field.inputType]?.secondary || [])];
+    const items = ops.map(op => `<li><a class="dropdown-item" href="#" onclick="selectFieldOperator('${fieldName}','${op}')">${op}</a></li>`).join('');
+    const selected = field.operatorPreference || ops[0] || '';
+    return `<div class="input-group">
+        ${innerHTML}
+        <button class="btn btn-outline-secondary btn-sm dropdown-toggle operator-icon" type="button" id="operator-${fieldName}" data-bs-toggle="dropdown" aria-expanded="false" title="${selected}">
+            <i class="fas fa-filter"></i>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">${items}</ul>
+    </div>`;
+}
+
+function selectFieldOperator(fieldName, operator) {
+    const btn = document.getElementById(`operator-${fieldName}`);
+    if (btn) btn.title = operator;
+    if (enhancedFormBuilderData.formConfig[fieldName]) {
+        enhancedFormBuilderData.formConfig[fieldName].operatorPreference = operator;
+    }
+}
+
 function updateEnhancedFormPreview() {
     const formPreview = document.getElementById('formPreview');
 
@@ -5893,38 +5921,36 @@ function updateEnhancedFormPreview() {
 
         switch (field.inputType) {
             case 'text':
-                formHTML += `<input type="text" class="form-control" placeholder="${placeholder}" ${required}>`;
+                formHTML += buildInputWithOperator(fieldName, field, `<input type="text" class="form-control" placeholder="${placeholder}" ${required}>`);
                 break;
 
             case 'number':
-                formHTML += `<input type="number" class="form-control" placeholder="${placeholder}" ${required}>`;
+                formHTML += buildInputWithOperator(fieldName, field, `<input type="number" class="form-control" placeholder="${placeholder}" ${required}>`);
                 break;
 
             case 'number-range':
-                formHTML += `<div class="input-group">`;
-                formHTML += `<input type="number" class="form-control" placeholder="Min" ${required}>`;
-                formHTML += `<span class="input-group-text">to</span>`;
-                formHTML += `<input type="number" class="form-control" placeholder="Max" ${required}>`;
-                formHTML += `</div>`;
+                formHTML += buildInputWithOperator(fieldName, field,
+                    `<input type="number" class="form-control" placeholder="Min" ${required}><span class="input-group-text">to</span><input type="number" class="form-control" placeholder="Max" ${required}>`,
+                    true
+                );
                 break;
 
             case 'date':
-                formHTML += `<input type="date" class="form-control" ${required}>`;
+                formHTML += buildInputWithOperator(fieldName, field, `<input type="date" class="form-control" ${required}>`);
                 break;
 
             case 'date-range':
-                formHTML += `<div class="input-group">`;
-                formHTML += `<input type="date" class="form-control" ${required}>`;
-                formHTML += `<span class="input-group-text">to</span>`;
-                formHTML += `<input type="date" class="form-control" ${required}>`;
-                formHTML += `</div>`;
+                formHTML += buildInputWithOperator(fieldName, field,
+                    `<input type="date" class="form-control" ${required}><span class="input-group-text">to</span><input type="date" class="form-control" ${required}>`,
+                    true
+                );
                 break;
 
 
             case 'dropdown':
-                formHTML += `<select class="form-select" id="dropdown-${fieldName}" ${required}>`;
-                formHTML += `<option value="">Loading options...</option>`;
-                formHTML += `</select>`;
+                formHTML += buildInputWithOperator(fieldName, field,
+                    `<select class="form-select" id="dropdown-${fieldName}" ${required}><option value="">Loading options...</option></select>`
+                );
 
                 // Load values dynamically after form render
                 setTimeout(() => {
@@ -6598,6 +6624,7 @@ function createFieldConfig(fieldName, fieldType) {
         label: fieldName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
         inputType: 'text',
         operatorPreference: '==',
+        operatorEnabled: false,
         role: 'value',
         required: false,
         placeholder: `Enter ${fieldName}`
