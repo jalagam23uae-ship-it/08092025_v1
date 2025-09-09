@@ -6598,8 +6598,13 @@ def build_query_v6(
 
         # ---- SINGLE-VALUE ----------------------------------------------------
         else:
-            op = resolve_operator_v1(value)
-            cond = create_condition(original_key, op, value, is_nested or is_inner)
+            if isinstance(value, dict) and value.get('operator') is not None and 'value' in value:
+                op = value.get('operator')
+                actual_value = value.get('value')
+            else:
+                op = resolve_operator_v1(value)
+                actual_value = value
+            cond = create_condition(original_key, op, actual_value, is_nested or is_inner)
             if is_inner:
                 _add_group(inner_groups, field_root, cond, "AND", kind="inner")
             elif is_nested:
@@ -6781,8 +6786,13 @@ def build_query_v7(
 
         # ---- SINGLE-VALUE ----------------------------------------------------
         else:
-            op = resolve_operator_v1(value)
-            cond = create_condition(original_key, op, value, is_nested or is_inner)
+            if isinstance(value, dict) and value.get('operator') is not None and 'value' in value:
+                op = value.get('operator')
+                actual_value = value.get('value')
+            else:
+                op = resolve_operator_v1(value)
+                actual_value = value
+            cond = create_condition(original_key, op, actual_value, is_nested or is_inner)
             if is_inner:
                 _add_group(inner_groups, field_root, cond, "AND", kind="inner")
             elif is_nested:

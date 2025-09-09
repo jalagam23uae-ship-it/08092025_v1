@@ -1210,6 +1210,7 @@
     function captureAllFormParameters(form) {
         const formData = {};
         const rangeBuffers = {};
+        const operatorMap = {};
         const formElements = form.elements;
 
         for (let i = 0; i < formElements.length; i++) {
@@ -1284,6 +1285,13 @@
                                 formData[fieldName] = element.value.trim();
                             }
                         }
+                    } else if (fieldName.endsWith('_operator')) {
+                        const base = fieldName.replace('_operator', '');
+                        if (element.value) {
+                            operatorMap[base] = element.value;
+                        }
+                    } else if (element.value.trim()) {
+                        formData[fieldName] = element.value.trim();
                     }
                     break;
             }
@@ -1293,6 +1301,13 @@
         Object.entries(rangeBuffers).forEach(([key, value]) => {
             if (Object.keys(value).length > 0) {
                 formData[key] = value;
+            }
+        });
+
+        // Attach operators to corresponding fields
+        Object.entries(operatorMap).forEach(([key, op]) => {
+            if (formData[key] !== undefined) {
+                formData[key] = { value: formData[key], operator: op };
             }
         });
 
@@ -1312,14 +1327,18 @@
 
         for (const [fieldName, fieldConfig] of Object.entries(window.formConfig.fields)) {
             if (fieldConfig.required) {
-                const value = fields[fieldName];
+                const rawValue = fields[fieldName];
+                const value = (rawValue && typeof rawValue === 'object' &&
+                    !Array.isArray(rawValue) && rawValue.operator !== undefined && rawValue.hasOwnProperty('value'))
+                    ? rawValue.value
+                    : rawValue;
 
                 if (!value || value === '' ||
                     (Array.isArray(value) && value.length === 0) ||
                     (typeof value === 'object' && value.type === 'multi_value' && value.values.length === 0) ||
                     (typeof value === 'object' && !Array.isArray(value) &&
                         !value.gte && !value.lte)) {
-
+                    
                     return {
                         isValid: false,
                         message: `${fieldConfig.label || fieldName} is required`
