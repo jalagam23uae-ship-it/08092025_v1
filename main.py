@@ -1265,7 +1265,9 @@ async def oracle_data_preview(
         if not es_env:
             raise HTTPException(status_code=404, detail="Elasticsearch environment not found")
 
-        root_fields, _, relation, _, _, parent_child_list = fetch_field_lists(elastic_env_id, index)
+        root_fields, _, relation, nested_fields, _, parent_child_list = fetch_field_lists(
+            elastic_env_id, index
+        )
         relation_filter = None
         if relation and parent_child_list:
             try:
@@ -1274,73 +1276,103 @@ async def oracle_data_preview(
             except ValueError:
                 relation_filter = None
 
-        base_query = query
-        if relation_filter and root_fields:
-            partition = ", ".join(root_fields)
-            dedup_inner = (
-                f"SELECT t.*, ROW_NUMBER() OVER (PARTITION BY {partition} ORDER BY {partition}) rn FROM ({query}) t"
-            )
-            base_query = f"SELECT * FROM ({dedup_inner}) WHERE rn = 1"
-
-        base_offset = max(offset - 1, 0)
-        page_offset = base_offset + (oracle_page - 1) * page_size
-        remaining = max(limit - (oracle_page - 1) * page_size, 0)
-        fetch_size = min(page_size, remaining)
-        paged_query = f"{base_query} OFFSET {page_offset} ROWS FETCH NEXT {fetch_size} ROWS ONLY"
-        count_query = f"SELECT COUNT(*) FROM ({base_query})"
-
         with oracledb.connect(
             user=oracle_env["username"],
             password=oracle_env["password"],
             dsn=oracle_env["url"],
         ) as connection:
             cursor = connection.cursor()
-            try:
-                cursor.execute(count_query)
-                total_rows = cursor.fetchone()[0]
-                total_rows = max(0, total_rows - base_offset)
-                total_rows = min(total_rows, limit)
-            except oracledb.DatabaseError as db_err:
-                if "ORA-00918" in str(db_err):
-                    cursor.execute(query)
-                    temp_rows = cursor.fetchall()
-                    if relation_filter and root_fields:
-                        cols = [c[0] for c in cursor.description]
-                        dedup = {}
-                        for r in temp_rows:
-                            row = dict(zip(cols, r))
-                            key = tuple(row.get(f) for f in root_fields)
-                            if key not in dedup:
-                                dedup[key] = row
-                        total_rows = len(dedup)
-                    else:
-                        total_rows = len(temp_rows)
-                else:
-                    raise
-
             rows = []
-            if fetch_size > 0:
+            total_rows = 0
+
+            if relation_filter and root_fields and nested_fields:
+                # Fetch all rows and aggregate nested values per root to avoid cross-join duplication
+                cursor.execute(query)
+                columns = [c[0] for c in cursor.description]
+                all_rows = [dict(zip(columns, r)) for r in cursor.fetchall()]
+
+                grouped = {}
+                for row in all_rows:
+                    key = tuple(row.get(f) for f in root_fields)
+                    root_part = {k: v for k, v in row.items() if k not in nested_fields}
+                    nested_part = {k: row.get(k) for k in nested_fields}
+                    if key not in grouped:
+                        grouped[key] = root_part
+                        grouped[key]["nested"] = []
+                    grouped[key]["nested"].append(nested_part)
+
+                grouped_rows = list(grouped.values())
+                total_rows_all = len(grouped_rows)
+
+                base_offset = max(offset - 1, 0)
+                limited = grouped_rows[base_offset: base_offset + limit]
+                total_rows = min(max(0, total_rows_all - base_offset), limit)
+
+                page_offset = (oracle_page - 1) * page_size
+                rows = limited[page_offset: page_offset + page_size]
+                for r in rows:
+                    r["nested"] = json.dumps(r["nested"])
+            else:
+                base_query = query
+                if relation_filter and root_fields:
+                    partition = ", ".join(root_fields)
+                    dedup_inner = (
+                        f"SELECT t.*, ROW_NUMBER() OVER (PARTITION BY {partition} ORDER BY {partition}) rn FROM ({query}) t"
+                    )
+                    base_query = f"SELECT * FROM ({dedup_inner}) WHERE rn = 1"
+
+                base_offset = max(offset - 1, 0)
+                page_offset = base_offset + (oracle_page - 1) * page_size
+                remaining = max(limit - (oracle_page - 1) * page_size, 0)
+                fetch_size = min(page_size, remaining)
+                paged_query = f"{base_query} OFFSET {page_offset} ROWS FETCH NEXT {fetch_size} ROWS ONLY"
+                count_query = f"SELECT COUNT(*) FROM ({base_query})"
+
                 try:
-                    cursor.execute(paged_query)
-                    columns = [c[0] for c in cursor.description]
-                    rows = [dict(zip(columns, r)) for r in cursor.fetchall()]
+                    cursor.execute(count_query)
+                    total_rows = cursor.fetchone()[0]
+                    total_rows = max(0, total_rows - base_offset)
+                    total_rows = min(total_rows, limit)
                 except oracledb.DatabaseError as db_err:
                     if "ORA-00918" in str(db_err):
                         cursor.execute(query)
-                        columns = [c[0] for c in cursor.description]
-                        all_rows = [dict(zip(columns, r)) for r in cursor.fetchall()]
+                        temp_rows = cursor.fetchall()
                         if relation_filter and root_fields:
+                            cols = [c[0] for c in cursor.description]
                             dedup = {}
-                            for row in all_rows:
+                            for r in temp_rows:
+                                row = dict(zip(cols, r))
                                 key = tuple(row.get(f) for f in root_fields)
                                 if key not in dedup:
                                     dedup[key] = row
-                            all_rows = list(dedup.values())
-                        slice_rows = all_rows[page_offset:page_offset + fetch_size]
-                        rows = slice_rows
-                        total_rows = len(all_rows)
+                            total_rows = len(dedup)
+                        else:
+                            total_rows = len(temp_rows)
                     else:
                         raise
+
+                if fetch_size > 0:
+                    try:
+                        cursor.execute(paged_query)
+                        columns = [c[0] for c in cursor.description]
+                        rows = [dict(zip(columns, r)) for r in cursor.fetchall()]
+                    except oracledb.DatabaseError as db_err:
+                        if "ORA-00918" in str(db_err):
+                            cursor.execute(query)
+                            columns = [c[0] for c in cursor.description]
+                            all_rows = [dict(zip(columns, r)) for r in cursor.fetchall()]
+                            if relation_filter and root_fields:
+                                dedup = {}
+                                for row in all_rows:
+                                    key = tuple(row.get(f) for f in root_fields)
+                                    if key not in dedup:
+                                        dedup[key] = row
+                                all_rows = list(dedup.values())
+                            slice_rows = all_rows[page_offset:page_offset + fetch_size]
+                            rows = slice_rows
+                            total_rows = len(all_rows)
+                        else:
+                            raise
 
         es_url = f"{es_env['host_url']}/{index}/_search"
         auth = (es_env.get("username"), es_env.get("password")) if es_env.get("username") else None
