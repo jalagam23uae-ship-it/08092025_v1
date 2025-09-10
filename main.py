@@ -59,6 +59,7 @@ class FormConfiguration(BaseModel):
     environment: int
     index: str
     fields: Dict[str, Any]
+    advanced_config: Optional[Dict[str, Any]] = None
     created_at: Optional[str] = None
 
 # Database models
@@ -203,10 +204,18 @@ def init_db():
                                                                       environment INTEGER NOT NULL,
                                                                       index_name TEXT NOT NULL,
                                                                       fields_json TEXT NOT NULL,
+                                                                      advanced_json TEXT,
                                                                       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                                                                       FOREIGN KEY (environment) REFERENCES elasticsearch_environments (id)
                        )
                    ''')
+
+    # Attempt to add advanced_json column for existing databases
+    try:
+        cursor.execute("ALTER TABLE form_configurations ADD COLUMN advanced_json TEXT")
+    except sqlite3.OperationalError:
+        pass
+
     conn.commit()
     conn.close()
 
@@ -216,17 +225,20 @@ def save_form_configuration(form_config: FormConfiguration):
     with get_db() as conn:
         cursor = conn.cursor()
 
+        fields_json = json.dumps(form_config.fields)
+        advanced_json = json.dumps(form_config.advanced_config) if form_config.advanced_config is not None else None
+
         if form_config.id:
             cursor.execute(
-                "UPDATE form_configurations SET name=?, url=?, environment=?, index_name=?, fields_json=? WHERE id=?",
+                "UPDATE form_configurations SET name=?, url=?, environment=?, index_name=?, fields_json=?, advanced_json=? WHERE id=?",
                 (form_config.name, form_config.url, form_config.environment, form_config.index,
-                 json.dumps(form_config.fields), form_config.id)
+                 fields_json, advanced_json, form_config.id)
             )
         else:
             cursor.execute(
-                "INSERT INTO form_configurations (name, url, environment, index_name, fields_json) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO form_configurations (name, url, environment, index_name, fields_json, advanced_json) VALUES (?, ?, ?, ?, ?, ?)",
                 (form_config.name, form_config.url, form_config.environment, form_config.index,
-                 json.dumps(form_config.fields))
+                 fields_json, advanced_json)
             )
 
         conn.commit()
@@ -236,30 +248,44 @@ def get_form_configurations():
     """Get all form configurations"""
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
                        SELECT f.*, e.name as environment_name
                        FROM form_configurations f
                                 JOIN elasticsearch_environments e ON f.environment = e.id
                        ORDER BY f.created_at DESC
-                       """)
-        return [dict(row) for row in cursor.fetchall()]
+            """
+        )
+        forms = []
+        for row in cursor.fetchall():
+            data = dict(row)
+            data['fields'] = json.loads(data.get('fields_json', '{}'))
+            if data.get('advanced_json'):
+                data['advanced_config'] = json.loads(data['advanced_json'])
+            forms.append(data)
+        return forms
 
 def get_form_configuration_by_url(url: str):
     """Get form configuration by URL"""
     with get_db() as conn:
         cursor = conn.cursor()
         print(url)
-        cursor.execute("""
+        cursor.execute(
+            """
                        SELECT f.*, e.name as environment_name, e.host_url, e.username, e.password
                        FROM form_configurations f
                                 JOIN elasticsearch_environments e ON f.environment = e.id
                        WHERE f.url = ?
-                       """, (url,))
+            """,
+            (url,)
+        )
         result = cursor.fetchone()
         print(result)
         if result:
             form_data = dict(result)
             form_data['fields'] = json.loads(form_data['fields_json'])
+            if form_data.get('advanced_json'):
+                form_data['advanced_config'] = json.loads(form_data['advanced_json'])
             return form_data
         return None
 
@@ -2550,7 +2576,8 @@ async def save_form(request: Request):
             url=form_data['url'],
             environment=form_data['environment'],
             index=form_data['index'],
-            fields=form_data['fields']
+            fields=form_data['fields'],
+            advanced_config=form_data.get('advanced')
         )
 
         form_id = save_form_configuration(form_config)
@@ -2729,6 +2756,48 @@ async def submit_form_v1(form_url: str, request: Request):
             "success": False,
             "error": f"Failed to submit form: {str(e)}"
         })
+
+
+@app.post("/submit-advanced-form/{form_url}")
+async def submit_advanced_form(form_url: str, request: Request):
+    """Handle submission for advanced search mode"""
+    try:
+        form_config = get_form_configuration_by_url(form_url)
+        if not form_config:
+            return JSONResponse({"success": False, "error": "Form not found"})
+
+        payload = await request.json()
+        query_structure = payload.get("query")
+        if not query_structure:
+            return JSONResponse({"success": False, "error": "Missing query structure"})
+
+        es_query = build_es_query_v3({"query": query_structure})
+
+        es_url = f"http://{form_config['host_url']}/{form_config['index_name']}/_search"
+        auth = None
+        if form_config.get('username') and form_config.get('password'):
+            auth = (form_config['username'], form_config['password'])
+
+        response = requests.post(es_url, json=es_query, auth=auth)
+        if response.status_code == 200:
+            result = response.json()
+            hits = result.get('hits', {}).get('hits', [])
+            formatted = [{
+                "id": h.get('_id'),
+                "score": h.get('_score'),
+                "data": h.get('_source', {})
+            } for h in hits]
+            return JSONResponse({
+                "success": True,
+                "results": formatted,
+                "total": result.get('hits', {}).get('total', {}).get('value', 0),
+                "query": es_query
+            })
+        else:
+            return JSONResponse({"success": False, "error": f"Elasticsearch query failed: {response.text}"})
+
+    except Exception as e:
+        return JSONResponse({"success": False, "error": f"Failed to submit advanced form: {str(e)}"})
 
 
 # INSERT AFTER LINE 1000: Enhanced Form Configuration Endpoints

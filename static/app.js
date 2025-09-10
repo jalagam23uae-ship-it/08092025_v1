@@ -57,8 +57,12 @@ let enhancedFormBuilderData = {
     index: null,
     availableFields: [],
     formConfig: {},
-    indexMappings: {}
+    indexMappings: {},
+    advancedSearch: null
 };
+
+let advancedSearchMode = false;
+let advancedSearchStructure = { operator: 'AND', conditions: [], groups: [] };
 
 // Current field being configured
 let currentFieldConfig = null;
@@ -5121,7 +5125,8 @@ async function handleSaveFormConfig() {
                 url: formUrl,
                 environment: parseInt(envId),
                 index: indexName,
-                fields: enhancedFormBuilderData.formConfig
+                fields: enhancedFormBuilderData.formConfig,
+                advanced: enhancedFormBuilderData.advancedSearch
             })
         });
 
@@ -5138,6 +5143,13 @@ async function handleSaveFormConfig() {
             enhancedFormBuilderData.formConfig = {};
             formBuilderData.formConfig = {};
             currentEditingFormId = null;
+            enhancedFormBuilderData.advancedSearch = null;
+            advancedSearchStructure = { operator: 'AND', conditions: [], groups: [] };
+            const advToggle = document.getElementById('enableAdvancedSearch');
+            if (advToggle) {
+                advToggle.checked = false;
+                initAdvancedSearchToggle();
+            }
             const saveBtn = document.getElementById('saveFormConfig');
             if (saveBtn) {
                 saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>Save Form Configuration';
@@ -5237,6 +5249,15 @@ async function editForm(formId, formUrl) {
             updateFormFieldsDisplay();
             updateEnhancedFormPreview();
             showFormConfigSection();
+
+            advancedSearchStructure = formConfig.advanced_config || { operator: 'AND', conditions: [], groups: [] };
+            const advToggle = document.getElementById('enableAdvancedSearch');
+            if (advToggle) {
+                advToggle.checked = !!formConfig.advanced_config;
+                advancedSearchMode = advToggle.checked;
+                enhancedFormBuilderData.advancedSearch = advancedSearchMode ? advancedSearchStructure : null;
+                initAdvancedSearchToggle();
+            }
 
             if (saveBtn) {
                 saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>Update Form Configuration';
@@ -9960,4 +9981,256 @@ async function saveMappingUpdate() {
 }
 // Expose save handler globally
 window.saveMappingUpdate = saveMappingUpdate;
+
+// =========================
+// Advanced Search Builder
+// =========================
+
+function initAdvancedSearchToggle() {
+    const toggle = document.getElementById('enableAdvancedSearch');
+    const normal = document.getElementById('normalSearchBuilder');
+    const advanced = document.getElementById('advancedSearchBuilder');
+    if (!toggle || !normal || !advanced) return;
+
+    toggle.addEventListener('change', () => {
+        advancedSearchMode = toggle.checked;
+        normal.style.display = advancedSearchMode ? 'none' : 'block';
+        advanced.style.display = advancedSearchMode ? 'block' : 'none';
+        enhancedFormBuilderData.advancedSearch = advancedSearchMode ? advancedSearchStructure : null;
+        updateAdvancedUI();
+    });
+
+    // initialize state
+    if (toggle.checked) {
+        advancedSearchMode = true;
+        normal.style.display = 'none';
+        advanced.style.display = 'block';
+        updateAdvancedUI();
+    }
+}
+
+function updateAdvancedUI() {
+    if (!advancedSearchMode) return;
+    const container = document.getElementById('advancedRoot');
+    if (!container) return;
+    container.innerHTML = '';
+    container.appendChild(renderAdvancedGroup(advancedSearchStructure));
+    updateAdvancedPreview();
+}
+
+function renderAdvancedGroup(group, depth = 0, parent = null) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'card mb-2';
+    wrapper.style.marginLeft = depth * 20 + 'px';
+
+    const header = document.createElement('div');
+    header.className = 'card-header d-flex justify-content-between align-items-center';
+
+    const opSelect = document.createElement('select');
+    opSelect.className = 'form-select form-select-sm w-auto';
+    ['AND', 'OR', 'NOT'].forEach(op => {
+        const opt = document.createElement('option');
+        opt.value = op;
+        opt.textContent = op;
+        if (group.operator === op) opt.selected = true;
+        opSelect.appendChild(opt);
+    });
+    opSelect.addEventListener('change', e => {
+        group.operator = e.target.value;
+        updateAdvancedPreview();
+    });
+    header.appendChild(opSelect);
+
+    const actions = document.createElement('div');
+
+    if (parent) {
+        const delBtn = document.createElement('button');
+        delBtn.className = 'btn btn-sm btn-danger me-1';
+        delBtn.innerHTML = '<i class="fas fa-trash"></i>';
+        delBtn.addEventListener('click', () => {
+            const idx = parent.groups.indexOf(group);
+            if (idx > -1) parent.groups.splice(idx, 1);
+            updateAdvancedUI();
+        });
+        actions.appendChild(delBtn);
+    }
+
+    const ruleBtn = document.createElement('button');
+    ruleBtn.className = 'btn btn-sm btn-secondary me-1';
+    ruleBtn.innerHTML = '<i class="fas fa-plus me-1"></i>Rule';
+    ruleBtn.addEventListener('click', () => {
+        addRuleToGroup(group);
+    });
+    actions.appendChild(ruleBtn);
+
+    const groupBtn = document.createElement('button');
+    groupBtn.className = 'btn btn-sm btn-secondary';
+    groupBtn.innerHTML = '<i class="fas fa-layer-group me-1"></i>Sub-Group';
+    groupBtn.addEventListener('click', () => {
+        addGroupToGroup(group);
+    });
+    actions.appendChild(groupBtn);
+
+    header.appendChild(actions);
+    wrapper.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'card-body';
+
+    group.conditions.forEach(cond => {
+        body.appendChild(renderAdvancedRule(group, cond));
+    });
+
+    group.groups.forEach(sub => {
+        body.appendChild(renderAdvancedGroup(sub, depth + 1, group));
+    });
+
+    wrapper.appendChild(body);
+    return wrapper;
+}
+
+function renderAdvancedRule(group, rule) {
+    const row = document.createElement('div');
+    row.className = 'row align-items-center mb-2';
+
+    const fieldCol = document.createElement('div');
+    fieldCol.className = 'col-md-4';
+    const fieldSelect = document.createElement('select');
+    fieldSelect.className = 'form-select form-select-sm';
+    populateFieldOptions(fieldSelect, rule.field);
+    fieldSelect.addEventListener('change', e => {
+        rule.field = e.target.value;
+        updateAdvancedPreview();
+    });
+    fieldCol.appendChild(fieldSelect);
+
+    const opCol = document.createElement('div');
+    opCol.className = 'col-md-3';
+    const opSelect = document.createElement('select');
+    opSelect.className = 'form-select form-select-sm';
+    populateOperatorOptions(opSelect, rule.operator);
+    opSelect.addEventListener('change', e => {
+        rule.operator = e.target.value;
+        updateAdvancedPreview();
+    });
+    opCol.appendChild(opSelect);
+
+    const valCol = document.createElement('div');
+    valCol.className = 'col-md-4';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'form-control form-control-sm';
+    input.value = rule.value || '';
+    input.addEventListener('input', e => {
+        rule.value = e.target.value;
+        updateAdvancedPreview();
+    });
+    valCol.appendChild(input);
+
+    const delCol = document.createElement('div');
+    delCol.className = 'col-md-1 text-end';
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn btn-sm btn-outline-danger';
+    delBtn.innerHTML = '<i class="fas fa-trash"></i>';
+    delBtn.addEventListener('click', () => {
+        const idx = group.conditions.indexOf(rule);
+        if (idx > -1) group.conditions.splice(idx, 1);
+        updateAdvancedUI();
+    });
+    delCol.appendChild(delBtn);
+
+    row.appendChild(fieldCol);
+    row.appendChild(opCol);
+    row.appendChild(valCol);
+    row.appendChild(delCol);
+
+    return row;
+}
+
+function populateFieldOptions(select, selected) {
+    const fields = Object.keys(enhancedFormBuilderData.formConfig || {});
+    select.innerHTML = '<option value="">Field</option>';
+    fields.forEach(f => {
+        const opt = document.createElement('option');
+        opt.value = f;
+        opt.textContent = f;
+        if (f === selected) opt.selected = true;
+        select.appendChild(opt);
+    });
+}
+
+function populateOperatorOptions(select, selected) {
+    const ops = ['==', '!=', '>', '>=', '<', '<=', 'match', 'in', 'range'];
+    select.innerHTML = '';
+    ops.forEach(op => {
+        const opt = document.createElement('option');
+        opt.value = op;
+        opt.textContent = op;
+        if (op === selected) opt.selected = true;
+        select.appendChild(opt);
+    });
+}
+
+function addRuleToGroup(group) {
+    group.conditions.push({ field: '', operator: '==', value: '' });
+    updateAdvancedUI();
+}
+
+function addGroupToGroup(group) {
+    group.groups.push({ operator: 'AND', conditions: [], groups: [] });
+    updateAdvancedUI();
+}
+
+function updateAdvancedPreview() {
+    const preview = document.getElementById('advancedPreview');
+    if (!preview) return;
+    const query = esFromGroup(advancedSearchStructure);
+    preview.textContent = JSON.stringify(query, null, 2);
+    enhancedFormBuilderData.advancedSearch = advancedSearchMode ? advancedSearchStructure : null;
+}
+
+function esFromGroup(group) {
+    const boolKey = group.operator === 'AND' ? 'must' : group.operator === 'OR' ? 'should' : 'must_not';
+    const clauses = [];
+    group.conditions.forEach(cond => {
+        const field = cond.field;
+        const val = cond.value;
+        let q = { match_all: {} };
+        switch (cond.operator) {
+            case '==':
+                q = { term: { [field]: { value: val } } };
+                break;
+            case '!=':
+                q = { bool: { must_not: [{ term: { [field]: { value: val } } }] } };
+                break;
+            case '>':
+                q = { range: { [field]: { gt: val } } };
+                break;
+            case '>=':
+                q = { range: { [field]: { gte: val } } };
+                break;
+            case '<':
+                q = { range: { [field]: { lt: val } } };
+                break;
+            case '<=':
+                q = { range: { [field]: { lte: val } } };
+                break;
+            case 'match':
+                q = { match: { [field]: { query: val } } };
+                break;
+            case 'in':
+                q = { terms: { [field]: String(val).split(',').map(v => v.trim()) } };
+                break;
+            case 'range':
+                const parts = String(val).split(',');
+                q = { range: { [field]: { gte: parts[0], lte: parts[1] } } };
+                break;
+        }
+        clauses.push(q);
+    });
+    group.groups.forEach(sub => clauses.push(esFromGroup(sub)));
+    const boolQuery = { bool: { [boolKey]: clauses } };
+    if (boolKey === 'should') boolQuery.bool.minimum_should_match = 1;
+    return boolQuery;
+}
 
